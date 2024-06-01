@@ -24,6 +24,10 @@ class Model(object):
         self.optimizer = None
         self.opt_op = None
 
+    def add_variable(self, var):
+        """ Add a TensorFlow variable to the vars dictionary. """
+        self.vars[var.op.name] = var
+
     def _build(self):
         raise NotImplementedError
 
@@ -38,12 +42,12 @@ class Model(object):
     def _loss(self):
         raise NotImplementedError
 
-    def save(self, sess=None):
-        if not sess:
-            raise AttributeError("TensorFlow session not provided.")
-        saver = tf.train.Saver(self.vars)
-        save_path = saver.save(sess, "tmp/%s.ckpt" % self.name)
-        print("Model saved in file: %s" % save_path)
+    # def save(self, sess=None):
+    #     if not sess:
+    #         raise AttributeError("TensorFlow session not provided.")
+    #     saver = tf.train.Saver(self.vars)
+    #     save_path = saver.save(sess, "tmp/%s.ckpt" % self.name)
+    #     print("Model saved in file: %s" % save_path)
 
     def load(self, sess=None):
         if not sess:

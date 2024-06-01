@@ -38,7 +38,7 @@ class InfVAECascades(Model):
         if num_val % FLAGS.cascade_batch_size != 0:
             self.num_val_batches += 1
 
-        self.num_test_batches = num_test // FLAGS.cascade_batch_size
+        self.num_test_batches = num_test // FLAGS.cascade_batch_size #batch size 64
         if num_test % FLAGS.cascade_batch_size != 0:
             self.num_test_batches += 1
 
@@ -169,7 +169,7 @@ class InfVAECascades(Model):
         is_val = tf.compat.v1.placeholder(tf.bool, name='is_val')
         is_test = tf.compat.v1.placeholder(tf.bool, name='is_test')
         z_vae_embeddings = None
-        if self.mode == 'feed':
+        if self.mode == 'feed' or self.mode =='test':
             # Add z_vae_embeddings input.
             z_vae_embeddings = tf.compat.v1.placeholder(
                 dtype=tf.float32,
@@ -205,26 +205,33 @@ class InfVAECascades(Model):
                 name='temporal_embedding',
                 shape=[self.num_nodes, self.embedding_size],
                 initializer=initializer)
+            # self.add_variable(self.temporal_embeddings)
+
 
             self.receiver_embeddings = tf.compat.v1.get_variable(
                 name='receiver_embedding',
                 shape=[self.num_nodes, self.embedding_size],
                 initializer=initializer)
+            # self.add_variable(self.receiver_embeddings)
 
             self.sender_embeddings = tf.compat.v1.get_variable(
                 name='sender_embedding',
                 shape=[self.num_nodes, self.embedding_size],
                 initializer=initializer)
+            # self.add_variable(self.sender_embeddings)
 
             self.co_attn_wts = tf.compat.v1.get_variable(
                 name='co_attention_weights',
                 shape=[self.embedding_size, self.embedding_size],
                 initializer=initializer)
+            # self.add_variable(self.co_attn_wts)
+
 
             self.position_embeddings = tf.compat.v1.get_variable(
                 name='position_embeddings',
                 shape=[FLAGS.max_seq_length, self.embedding_size],
                 initializer=initializer)
+            # self.add_variable(self.position_embeddings)
 
             self.sender_embedded = tf.nn.embedding_lookup(
                 params=self.sender_embeddings,
@@ -248,8 +255,8 @@ class InfVAECascades(Model):
             self.attended_embeddings = self.temporal_embedded * tf.expand_dims(attn_alpha, -1)
             self.attended_embeddings = tf.reduce_sum(self.attended_embeddings, 1)  # (batch_size, embed_size)
 
-            self.outputs = tf.matmul(self.attended_embeddings, tf.transpose(
-                self.receiver_embeddings))  # (batch_size, num_users)
+            self.outputs = tf.nn.sigmoid(tf.matmul(self.attended_embeddings, tf.transpose(
+                self.receiver_embeddings)))  # (batch_size, num_users)
 
             _, self.top_k = tf.nn.top_k(self.outputs, k=200)  # (batch_size, 200)
 

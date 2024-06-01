@@ -184,11 +184,11 @@ def get_data_set(cascades, timestamps, max_len=None, test_min_percent=0.1, test_
             seed_set_times = ts_list[0:j]
             remain = cascade[j:]
             remain_times = ts_list[j:]
-            seed_set_percent = len(seed_set) / (len(seed_set) + len(remain))
+            seed_set_percent = len(seed_set) / (len(seed_set) + len(remain)) ## seed占比
             if mode == 'train' or mode == 'val':
                 eval_set.append((seed_set, remain))
                 eval_set_times.append((seed_set_times, remain_times))
-            if mode == 'test' and (test_min_percent < seed_set_percent < test_max_percent):
+            if mode == 'test' and (test_min_percent < seed_set_percent < test_max_percent): ## 测试集设置了seed占比区间0.1-0.5
                 eval_set.append((seed_set, remain))
                 eval_set_times.append((seed_set_times, remain_times))
     print("# {} examples {}".format(mode, len(eval_set)))

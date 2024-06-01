@@ -8,7 +8,7 @@ flags.DEFINE_string('dataset', 'christianity', 'Dataset string.')
 flags.DEFINE_integer('epochs', 100, 'Number of epochs to train.')
 flags.DEFINE_integer('pretrain_epochs', 50, 'Number of epochs to train.')
 flags.DEFINE_float('max_gradient_norm', 1.0, 'Clip gradients to this norm')
-flags.DEFINE_string('cuda_device', '0', 'GPU in use')
+flags.DEFINE_string('cuda_device', '', 'GPU in use')
 
 flags.DEFINE_integer('test_freq', 1, 'Testing frequency')
 flags.DEFINE_integer('val_freq', 1, 'Validation frequency')

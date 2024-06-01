@@ -47,6 +47,7 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
     A = load_graph(FLAGS.dataset)
     if FLAGS.use_feats:
         X = load_feats(FLAGS.dataset)
+        # print("X的形状 %s" % X.shape)
     else:
         X = np.eye(A.shape[0])
 
@@ -60,12 +61,14 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
 
     if FLAGS.graph_AE == 'GCN':
         num_batches_vae = 1
+    print("config信息%s" % FLAGS.graph_AE,num_batches_vae)
 
+    #读取及联数据
     train_cascades, train_times = load_cascades(FLAGS.dataset, mode='train')
     val_cascades, val_times = load_cascades(FLAGS.dataset, mode='val')
     test_cascades, test_times = load_cascades(FLAGS.dataset, mode='test')
 
-    # Truncating input data based on max_seq_length.
+    # 对数据进行截断,并且构建seed和剩余片段： Truncating input data based on max_seq_length.
     train_examples, train_examples_times = get_data_set(train_cascades, train_times,
                                                         max_len=FLAGS.max_seq_length,
                                                         mode='train')
@@ -88,6 +91,8 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
                            test_examples, test_examples_times,
                            logging=True, mode='feed')
 
+
+
     # Initialize session
     config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
@@ -101,6 +106,7 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
     z_vae_embeds = np.zeros([num_nodes + 1, FLAGS.latent_dim])
+    print('初始值z：',z_vae_embeds)
     logger.log("======VAE Pre-train=======")
     # Step 0: Pre-training using simple VAE on social network.
     for epoch in range(FLAGS.pretrain_epochs):
@@ -128,6 +134,7 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
         indices, z_val = sess.run([VGAE.node_indices, VGAE.z_mean])
         z_vae_embeds[indices] = z_val
         s = time.time()
+    print('z shape:%s,  z[1]:%s' % z_vae_embeds.shape, z_vae_embeds[1])
 
     val_loss_all = []
     sender_embeds = np.copy(z_vae_embeds)
@@ -149,10 +156,15 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
 
         epoch_loss = np.mean(losses)
         logger.log("Mean VAE loss at epoch: %04d %.5f" % (epoch + 1, epoch_loss))
+        
+        # # 保存模型到指定路径
+        # save_path = saver.save(sess, "model_checkpoint/model_android_social.ckpt")
+        # print(f"Model saved in path: {save_path}")
 
         # Step 2: Diffusion Cascades
         losses = []
         input_feed = CoAtt.construct_feed_dict(z_vae_embeddings=z_vae_embeds)
+        print('z shape:%s,  z[1]:%s' % z_vae_embeds.shape, z_vae_embeds[1])
 
         for b in range(0, CoAtt.num_train_batches):
             _, train_loss = sess.run([CoAtt.opt_op, CoAtt.diffusion_loss], input_feed)
@@ -162,25 +174,38 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
         receiver_embeds = sess.run(CoAtt.receiver_embeddings)
         epoch_loss = np.mean(losses)
         logger.log("Mean Attention loss at epoch: %04d %.5f" % (epoch + 1, epoch_loss))
-
+        # CoAtt.save(sess)
+        # print("sender_embeds的样子",sender_embeds)
+        # print("z",z_vae_embeds)
+        # # 保存所有变量到指定路径
+        # save_path = saver.save(sess, "model_checkpoint/model_android_cascade.ckpt")
+        # print(f"cascade Model saved in path: {save_path}")
+        
         # Testing
         if epoch % FLAGS.test_freq == 0:
+            # 先获取z_vae_embeds
+            print('测试开始,先获取Z。num_batches_vae:', num_batches_vae)
+            print("sender:",sender_embeds)
+            print("receiver:",receiver_embeds)
             input_feed = VGAE.construct_feed_dict(v_sender_all=sender_embeds,
                                                   v_receiver_all=receiver_embeds, dropout=0.)
             for _ in range(0, num_batches_vae):
                 vae_embeds, indices = sess.run([VGAE.z_mean, VGAE.node_indices], input_feed)
                 z_vae_embeds[indices] = vae_embeds
+
             input_feed = CoAtt.construct_feed_dict(z_vae_embeddings=z_vae_embeds, is_test=True)
 
             total_samples = 0
             num_eval_k = len(CoAtt.k_list)
             avg_map_scores, avg_recall_scores = [0.] * num_eval_k, [0.] * num_eval_k
 
-            all_outputs, all_targets = [], []
+            all_outputs, all_targets, outs = [], [],[]
             for b in range(0, CoAtt.num_test_batches):
                 recalls, maps, num_samples, decoder_outputs, decoder_targets = predict(
                     sess, CoAtt, input_feed)
+                output = sess.run(CoAtt.outputs, feed_dict=input_feed)
                 all_outputs.append(decoder_outputs)
+                outs.append(output)
                 all_targets.append(decoder_targets)
                 avg_map_scores = list(
                     map(operator.add, map(operator.mul, maps,
@@ -190,8 +215,13 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
                 total_samples += num_samples
             all_outputs = np.vstack(all_outputs)
             all_targets = np.vstack(all_targets)
+            outs = np.vstack(outs)
+
             avg_map_scores = list(map(operator.truediv, avg_map_scores, [total_samples] * num_eval_k))
             avg_recall_scores = list(map(operator.truediv, avg_recall_scores, [total_samples] * num_eval_k))
+
+            print("预测值：%s \n 真实值：%s" % (all_outputs[0],all_targets[0]))
+            print("是不是概率？？",outs[0])
 
             metrics = dict()
             for k in range(0, num_eval_k):
@@ -232,3 +262,9 @@ with ExpLogger("Inf-VAE", log_file=log_file, data_dir=OUTPUT_DATA_DIR) as logger
     # stop queue runners
     coord.request_stop()
     coord.join(threads)
+
+    # 保存最终模型
+    saver = tf.train.Saver()
+    saver.save(sess, "model_checkpoint/android_best"+str(today.month)+str(today.day)+".ckpt")
+    print(f"Final model saved in path: model_checkpoint/android_best.ckpt")
+
