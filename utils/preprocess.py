@@ -286,6 +286,7 @@ def prepare_batch_graph(adj, batch_size):
 
 def prepare_sequences(examples, examples_times, max_len=None, cascade_batch_size=1, mode='train'):
     """ Prepare sequences by padding and adding dummy evaluation sequences. """
+    # seqs_x就是seed集合
     seqs_x = list(map(lambda seq_t: (seq_t[0][(-1) * max_len:], seq_t[1]), examples))
     times_x = list(map(lambda seq_t: (seq_t[0][(-1) * max_len:], seq_t[1]), examples_times))
     # add padding.

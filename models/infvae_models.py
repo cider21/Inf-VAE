@@ -258,7 +258,7 @@ class InfVAECascades(Model):
             self.outputs = tf.nn.sigmoid(tf.matmul(self.attended_embeddings, tf.transpose(
                 self.receiver_embeddings)))  # (batch_size, num_users)
 
-            _, self.top_k = tf.nn.top_k(self.outputs, k=200)  # (batch_size, 200)
+            self.k_prob, self.top_k = tf.nn.top_k(self.outputs, k=200)  # (batch_size, 200)
 
             # Remove seed users from the predicted rank list.
             self.top_k_filter = tf.py_func(remove_seeds, [self.top_k, self.inputs], tf.int32)

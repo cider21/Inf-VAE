@@ -10,13 +10,12 @@ from utils.flags import *
 
 def predict(session, model, feed):
     """ Helper function to compute model predictions. """
-    recall_scores, map_scores, n_samples, top_k, target = \
-        session.run([model.recall_scores, model.map_scores, model.relevance_scores,
-                     model.top_k_filter, model.targets], feed_dict=feed)
-    return recall_scores, map_scores, n_samples.shape[0], top_k, target
+    out, top_k, target = \
+        session.run([model.outputs,model.top_k_filter, model.targets], feed_dict=feed)
+    return out, top_k, target
 
 
-def main():
+def predict_top_k(seeds,timestamps):
     # 加载数据
     A = load_graph(FLAGS.dataset)
     if FLAGS.use_feats:
@@ -36,13 +35,12 @@ def main():
     num_nodes = A.shape[0]
     layers_config = list(map(int, FLAGS.vae_layer_config.split(",")))
 
-    train_cascades, train_times = load_cascades(FLAGS.dataset, mode='train')
-    val_cascades, val_times = load_cascades(FLAGS.dataset, mode='val')
+    train_examples, train_examples_times = [],[]
+    val_examples, val_examples_times = [],[]
     test_cascades, test_times = load_cascades(FLAGS.dataset, mode='test')
 
-    train_examples, train_examples_times = get_data_set(train_cascades, train_times, max_len=FLAGS.max_seq_length, mode='train')
-    val_examples, val_examples_times = get_data_set(val_cascades, val_times, max_len=FLAGS.max_seq_length, mode='val')
-    test_examples, test_examples_times = get_data_set(test_cascades, test_times, max_len=FLAGS.max_seq_length, test_min_percent=FLAGS.test_min_percent, test_max_percent=FLAGS.test_max_percent, mode='test')
+    test_examples = [(s, []) for s in seeds]
+    test_examples_times = [(t,[]) for t in timestamps]
 
     social = InfVAESocial(X.shape[1], A, layers_config, mode='test', feats=X)
     att = InfVAECascades(num_nodes + 1, train_examples, train_examples_times,
@@ -50,15 +48,11 @@ def main():
                            test_examples, test_examples_times,
                            logging=False, mode='test')
     
-
     # 创建 Saver 对象
     saver = tf.compat.v1.train.Saver()
 
     # 恢复模型参数并进行预测
     with tf.compat.v1.Session() as session:
-
-        # input = session.run(att.input)
-        # print(input)
         
         session.run(tf.compat.v1.global_variables_initializer())
 
@@ -84,54 +78,28 @@ def main():
 
         input_feed = att.construct_feed_dict(z_vae_embeddings=z_vae_embeds, is_test=True)
 
-        total_samples = 0
-        num_eval_k = len(att.k_list)
-        avg_map_scores, avg_recall_scores = [0.] * num_eval_k, [0.] * num_eval_k
-
-        all_outputs, all_targets, outs = [], [],[]
+        all_outputs, all_targets, all_probs = [], [],[]
 
         print("test batchs:",att.num_test_batches)
         for b in range(0, att.num_test_batches):
             # print("b:",b)
-            recalls, maps, num_samples, decoder_outputs, decoder_targets = predict(
+            probs, decoder_outputs, decoder_targets = predict(
                 session, att, input_feed)
-            output = session.run(att.outputs, feed_dict=input_feed)
-            # print('output:\n',output)
             all_outputs.append(decoder_outputs)
-            outs.append(output)
+            all_probs.append(probs)
             all_targets.append(decoder_targets)
-            avg_map_scores = list(
-                map(operator.add, map(operator.mul, maps,
-                                        [num_samples] * num_eval_k), avg_map_scores))
-            avg_recall_scores = list(map(operator.add, map(operator.mul, recalls,
-                                                            [num_samples] * num_eval_k), avg_recall_scores))
-            total_samples += num_samples
+            
         all_outputs = np.vstack(all_outputs)
         all_targets = np.vstack(all_targets)
-        outs = np.vstack(outs)
-
-        avg_map_scores = list(map(operator.truediv, avg_map_scores, [total_samples] * num_eval_k))
-        avg_recall_scores = list(map(operator.truediv, avg_recall_scores, [total_samples] * num_eval_k))
-
-        # print("预测值：%s \n 真实值：%s" % (all_outputs[0],all_targets[0]))
-        # print("是不是概率？？",outs[0])
-
-        metrics = dict()
-        for k in range(0, num_eval_k):
-            K = att.k_list[k]
-            metrics["MAP@%d" % K] = avg_map_scores[k]
-            metrics["Recall@%d" % K] = avg_recall_scores[k]
-
-        # logger.update_record(avg_map_scores[0], (all_outputs, all_targets, metrics))
-
-        # print evaluation metrics
-        # outputs, targets, metrics = logger.best_data
-        print("Evaluation metrics on test set:")
-        print(metrics)
+        all_probs = np.vstack(all_probs)
+        print("所有的概率：",np.sort(all_probs[0]))
+        print('预测的节点：',all_outputs[0])
 
         # stop queue runners
         coord.request_stop()
         coord.join(threads)
 
 if __name__ == "__main__":
-    main()
+    seeds = [[1,2,3],[6,5,4]]
+    timestamps = [[0,200,3000],[0,5000,6000]]
+    predict_top_k(seeds, timestamps)
